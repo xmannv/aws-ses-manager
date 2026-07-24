@@ -1,0 +1,15 @@
+# Copy this file to `.dev.vars` and fill in real values for local development.
+# `.dev.vars` is git-ignored. In production, set these in the Cloudflare
+# dashboard under "Workers & Pages > your worker > Settings > Variables and Secrets"
+# (mark AWS_SECRET_ACCESS_KEY and APP_PASSWORD as encrypted "Secret").
+
+# AWS IAM credentials. The IAM user/role MUST have the
+# `ses:DeleteSuppressedDestination` permission.
+AWS_ACCESS_KEY_ID=""
+AWS_SECRET_ACCESS_KEY=""
+
+# AWS region of the SES account. The suppression list is per-region.
+AWS_REGION="us-east-1"
+
+# Password required to unlock the app UI.
+APP_PASSWORD=""
