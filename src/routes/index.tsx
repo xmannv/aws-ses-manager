@@ -11,9 +11,7 @@ import { HStack } from '@astryxdesign/core/HStack'
 import {
   removeSuppressed,
   verifyPassword,
-  purgeSuppressedBatch,
   type RemoveResponse,
-  type SuppressionReason,
 } from '#/server/suppression'
 import { parseEmails } from '#/lib/emails'
 
@@ -222,9 +220,6 @@ function Feature({ password }: { password: string }) {
 
         {/* Results */}
         {response && <Results response={response} />}
-
-        {/* Danger zone: purge entire list */}
-        <DangerZone password={password} />
       </VStack>
     </main>
   )
@@ -282,143 +277,6 @@ function Results({ response }: { response: RemoveResponse }) {
   )
 }
 
-/**
- * Danger zone: purge the ENTIRE suppression list (optionally filtered by reason).
- * Requires typing "DELETE ALL". Loops purgeSuppressedBatch until the list is
- * empty, showing live progress. Each batch is bounded server-side to stay within
- * Worker subrequest limits.
- */
-const CONFIRM_PHRASE = 'DELETE ALL'
-const REASONS: { value: SuppressionReason; label: string }[] = [
-  { value: 'ALL', label: 'All reasons' },
-  { value: 'BOUNCE', label: 'Bounces only' },
-  { value: 'COMPLAINT', label: 'Complaints only' },
-]
-/** Safety valve so a runaway loop can't hammer AWS indefinitely. */
-const MAX_BATCHES = 500
-
-function DangerZone({ password }: { password: string }) {
-  const [reason, setReason] = useState<SuppressionReason>('ALL')
-  const [confirm, setConfirm] = useState('')
-  const [isPurging, setIsPurging] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [progress, setProgress] = useState<{
-    deleted: number
-    errored: number
-    done: boolean
-  } | null>(null)
-
-  const canRun = confirm === CONFIRM_PHRASE && !isPurging
-
-  async function handlePurge() {
-    if (!canRun) return
-    setError(null)
-    setProgress({ deleted: 0, errored: 0, done: false })
-    setIsPurging(true)
-
-    let totalDeleted = 0
-    let totalErrored = 0
-    try {
-      for (let batch = 0; batch < MAX_BATCHES; batch++) {
-        const res = await purgeSuppressedBatch({
-          data: { password, confirm, reason },
-        })
-        totalDeleted += res.deleted
-        totalErrored += res.errored
-        setProgress({
-          deleted: totalDeleted,
-          errored: totalErrored,
-          done: !res.hasMore,
-        })
-        if (!res.hasMore) break
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Purge failed.')
-      setProgress((p) => (p ? { ...p, done: true } : p))
-    } finally {
-      setIsPurging(false)
-      setConfirm('')
-    }
-  }
-
-  return (
-    <div className="danger-zone animate-rise">
-      <VStack gap={3}>
-        <div className="brand">
-          <span className="brand-badge danger-badge" aria-hidden="true">
-            <WarningIcon />
-          </span>
-          <VStack gap={0}>
-            <Heading level={2}>Danger zone</Heading>
-            <Text size="sm" color="secondary">
-              Remove every address from the suppression list. This cannot be
-              undone.
-            </Text>
-          </VStack>
-        </div>
-
-        <Banner
-          status="warning"
-          container="card"
-          title="Removing suppressed addresses lets SES email them again — including past hard bounces and complaints. This can harm your sender reputation."
-        />
-
-        <VStack gap={1}>
-          <Text size="sm" color="secondary">
-            Scope
-          </Text>
-          <div className="reason-group">
-            {REASONS.map((r) => (
-              <button
-                key={r.value}
-                type="button"
-                className={`reason-chip${reason === r.value ? ' is-active' : ''}`}
-                disabled={isPurging}
-                onClick={() => setReason(r.value)}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        </VStack>
-
-        <TextInput
-          label={`Type "${CONFIRM_PHRASE}" to confirm`}
-          value={confirm}
-          placeholder={CONFIRM_PHRASE}
-          isDisabled={isPurging}
-          onChange={(v) => {
-            setConfirm(v)
-            if (error) setError(null)
-          }}
-          onEnter={handlePurge}
-        />
-
-        <Button
-          label={isPurging ? 'Removing all…' : 'Remove entire list'}
-          variant="destructive"
-          width="100%"
-          isLoading={isPurging}
-          isDisabled={!canRun}
-          onClick={handlePurge}
-        />
-
-        {progress && (
-          <div className="result-row" style={{ justifyContent: 'flex-start' }}>
-            <Text size="sm">
-              {progress.done ? 'Done. ' : 'Working… '}
-              Removed {progress.deleted}
-              {progress.errored > 0 ? ` · ${progress.errored} errors` : ''}
-            </Text>
-          </div>
-        )}
-
-        {error && <Banner status="error" container="card" title={error} />}
-      </VStack>
-    </div>
-  )
-}
-
 /* --- Icons (inline SVG, currentColor) --- */
 
 function LockIcon() {
@@ -462,26 +320,6 @@ function MailIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-function WarningIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M12 3.5 21 19H3L12 3.5Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M12 10v4"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="16.5" r="0.4" fill="currentColor" stroke="currentColor" />
     </svg>
   )
 }
